@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import os, pdb
+import os, pdb, argparse
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler, LabelEncoder
@@ -11,14 +11,19 @@ from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold, c
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, BaggingClassifier
 from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC
 
-def load_dataset(full_path, sensitive_attr):
+def load_dataset(full_path, s_attr):
     dataframe = pd.read_csv(full_path,na_values='?')
     dataframe = dataframe.dropna()
     # split into inputs and outputs
-    last_ix = 'income'
+    if 'disp_impact' in full_path:
+        last_ix = 'income-per-year'
+    else:
+        last_ix = 'income'
     X, y = dataframe.drop(last_ix, axis=1), dataframe[last_ix]
-    X, sensitive_attr = dataframe.drop(sensitive_attr, axis=1), dataframe[sensitive_attr]
+    sens_idx = dataframe.columns.get_loc('sex') -1
+    sensitive_attr =  dataframe[s_attr]
     cat_ix = X.select_dtypes(include=['object', 'bool']).columns
     num_ix = X.select_dtypes(include=['int64', 'float64']).columns
     c_ix = []
@@ -28,57 +33,84 @@ def load_dataset(full_path, sensitive_attr):
             c_ix.append(i)
         elif v in num_ix:
             n_ix.append(i)
-    return X.values, y.values, sensitive_attr, c_ix, n_ix
+    return X.values, y.values, c_ix, n_ix, sensitive_attr, sens_idx
 
 
-def run_classifiers( X, y, model, kfold=False):
-    if kfold == False:
-        perc=0.15
-        print(f"Running Train-Test split with {perc}% test set.")
-        # Train test split
-        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size=perc, random_state=42)
-
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
-        score = accuracy_score(y_test,preds)
+def run_classifiers( X, y, model):
+    perc=0.15
+    print(f"Running Train-Test split with {perc}% test set.")
+    # Train test split
+    X_train, X_test, y_train, y_test = train_test_split(X,y, test_size=perc, random_state=76)
     
-    else:
-        k = 10
-        print(f"Running {k}k-fold cross validation training.")
-        # define evaluation procedure
-        cv = RepeatedStratifiedKFold(n_splits=k, n_repeats=1, random_state=1)
-        # evaluate model
-        score = cross_val_score(model, X, y, scoring='accuracy', cv=cv, n_jobs=2)
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    score = accuracy_score(y_test,preds)
 
     return score, X_test, y_test
 
 
-def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
-    # count 1's for men and women 
-    count_1 = 0
-    count_0 = 0 
+def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score, sens_idx):
+    count_1, count_1_men, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0
+    incr = lambda x: x+1 
+
     for i, row in enumerate(x_test):
         if sens_attr[i] == 0:
-            count_0 = count_0 + 1
+            incr(count_0)
+            if row[sens_idx] == 0: #male
+                incr(count_1_men)
+            else:
+                incr(count_1_fem)
         else:
-            count_1 = count_1 +1 
-    print(f"Proportion of 0: {count_0/i}")
-    print(f"Proportion of 1: {count_1/i}")
+            incr(count_1) 
+            if row[sens_idx] == 0: #male
+                incr(count_0_men)
+            else:
+                incr(count_0_fem)
+    
+    print(f"Proportion of 1 given sex=male: {count_1_men/i:.3f}")
+    print(f"Proportion of 1 given sex=female: {count_1_fem/i:.3f}")
+    print(f"proportion of label = 1: {count_1/i:.3f}")
 
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m','--model', type=str, default='tree', help='Type of model', choices=['svm', 'tree', 'MLP','bagging', 'grad_boost', 'forest'], required=True)
+    parser.add_argument('-fp', '--file_path', default="/home/jc/Desktop/udem_H20/thesis_research/GeneralDatasets/sex_last/disp_impact_remover_1.0_sex.csv" , type=str, help='Path to the file to use as input.')
+    parser.add_argument('-s', '--sensitive', type=str, default='sex', help='attribute considered sensitive for calculations')
+    parser.add_argument('-enc', '--encode', type=str, default='true', required=False)
+    
+    return parser.parse_args()
+
+model_dict = {
+    'tree': DecisionTreeClassifier(),
+    'forest': RandomForestClassifier(),
+    'grad_boost': GradientBoostingClassifier(),
+    'bagging': BaggingClassifier(),
+    'MLP': MLPClassifier(),
+    'svm': SVC()
+}
 
 if __name__ == "__main__":
-    path_to_file = "../GeneralDatasets/Csv/Adult_NotNA_.csv"
-    sensitive_attr = 'sex'
+    args = get_args()
+
+    path_to_file = "../GeneralDatasets/sex_last/Adult_NotNA__sex.csv"
+    path_to_file = "/home/jc/Desktop/udem_H20/thesis_research/GeneralDatasets/sex_last/disp_impact_remover_1.0_sex.csv"
+    path_to_file = args.file_path
     
-    x, y, sens_attr, c_ix, n_ix = load_dataset(path_to_file, sensitive_attr)
+    x, y, c_ix, n_ix, sensitive_col, sens_idx = load_dataset(path_to_file, args.sensitive)
+    
+    model = model_dict[args.model]
 
-    steps = [('c',OneHotEncoder(handle_unknown='ignore'),c_ix), ('n',MinMaxScaler(),n_ix)]
-    ct = ColumnTransformer(steps)
-    model = GradientBoostingClassifier()
-    pipeline = Pipeline(steps=[('t',ct),('m',model)])
-
-    score, x_test, y_test = run_classifiers(x, y, pipeline, False)
+    if args.encode=='true':
+        print('encoding \n')
+        steps = [('c',OneHotEncoder(handle_unknown='ignore'),c_ix), ('n',MinMaxScaler(),n_ix)]
+        ct = ColumnTransformer(steps)
+        pipeline = Pipeline(steps=[('t',ct),('m',model)])
+        score, x_test, y_test = run_classifiers(x, y, pipeline)
+    else:
+        print('only model \n')
+        score, x_test, y_test = run_classifiers(x, y, model)
+    print(f"Accuracy on decision: {(score*100):.3f}%")
 
     y_pred = model.predict(x_test)
-
-    demo_parity_check(x_test, y_test, y_pred, sens_attr, score)
+    
+    demo_parity_check(x_test, y_test, y_pred, sensitive_col, score, sens_idx)
