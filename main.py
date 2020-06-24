@@ -16,13 +16,10 @@ from sklearn.svm import SVC
 def load_dataset(full_path, s_attr):
     dataframe = pd.read_csv(full_path,na_values='?')
     dataframe = dataframe.dropna()
-    # split into inputs and outputs
-    if 'disp_impact' in full_path:
-        last_ix = 'income-per-year'
-    else:
-        last_ix = 'income'
+
+    last_ix = 'income'
+
     X, y = dataframe.drop(last_ix, axis=1), dataframe[last_ix]
-    sens_idx = dataframe.columns.get_loc('sex') -1
     sensitive_attr =  dataframe[s_attr]
     cat_ix = X.select_dtypes(include=['object', 'bool']).columns
     num_ix = X.select_dtypes(include=['int64', 'float64']).columns
@@ -33,11 +30,11 @@ def load_dataset(full_path, s_attr):
             c_ix.append(i)
         elif v in num_ix:
             n_ix.append(i)
-    return X.values, y.values, c_ix, n_ix, sensitive_attr, sens_idx
+    return X.values, y.values, c_ix, n_ix, sensitive_attr
 
 
 def run_classifiers(X, y, model):
-    perc=0.15
+    perc=0.10
     # Train test split
     X_train, X_test, y_train, y_test = train_test_split(X,y, test_size=perc, random_state=76)
     
@@ -48,7 +45,7 @@ def run_classifiers(X, y, model):
     return score, X_test, y_test
 
 # sex = 1 means male
-def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score, sens_idx):
+def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
     '''
         Calculates demographic parity on trained model.
 
@@ -60,13 +57,13 @@ def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score, sens_id
     for i, row in enumerate(x_test):
         if sens_attr[i] == 0:
             count_1 = incr(count_1)
-            if row[sens_idx] == 0: #female
+            if row[-1] == 0: #female
                 count_1_men = incr(count_1_men)
             else:
                 count_1_fem = incr(count_1_fem)
         else:
             count_0 = incr(count_0) 
-            if row[sens_idx] == 0: #female
+            if row[-1] == 0: #female
                 count_0_men = incr(count_0_men)
             else:
                 count_0_fem = incr(count_0_fem)
@@ -75,7 +72,7 @@ def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score, sens_id
     print(f"Proportion of 1 given sex=female: {count_1_fem/i:.3f}")
     print(f"proportion of label 1: {count_1/i:.3f}")
 
-def disparate_impact(x_test, y_true, y_pred, sens_attr, accuracy_score, sens_idx):
+def disparate_impact(x_test, y_true, y_pred, sens_attr, accuracy_score):
     '''
         Calculates disparate impact. 
 
@@ -87,18 +84,17 @@ def disparate_impact(x_test, y_true, y_pred, sens_attr, accuracy_score, sens_idx
     for i, row in enumerate(x_test):
         if sens_attr[i] == 0:
             count_1 = incr(count_1) # count of total positive decision
-            if row[sens_idx] == 0: # female
+            if row[-1] == 0: # female
                 count_1_men = incr(count_1_men)
             else:
                 count_1_fem = incr(count_1_fem)
         else:
             count_0 = incr(count_0) # count of total negative decision
-            if row[sens_idx] == 0: # female
+            if row[-1] == 0: # female
                 count_0_men = incr(count_0_men)
             else:
                 count_0_fem = incr(count_0_fem)
-    
-    # prob oui if men / prob oui if femal
+    # prob oui if men / prob oui if female
     a = count_1_men/(count_1_men+count_0_men)
     b = count_1_fem/(count_1_fem+count_0_fem)
     print(f"Disparate Impact value: {a/b:.3f}")
@@ -106,8 +102,8 @@ def disparate_impact(x_test, y_true, y_pred, sens_attr, accuracy_score, sens_idx
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m','--model', type=str, default='tree', help='Type of model', choices=['svm', 'tree', 'MLP','bagging', 'grad_boost', 'forest'], required=True)
-    parser.add_argument('-fp', '--file_path', default="/home/jc/Desktop/udem_H20/thesis_research/GeneralDatasets/sex_last/disp_impact_remover_1.0_sex.csv" , type=str, help='Path to the file to use as input.')
+    parser.add_argument('-m','--model', type=str, default='tree', help='Type of model', choices=['svm', 'tree', 'MLP','bagging', 'grad_boost', 'forest'], required=False)
+    parser.add_argument('-fn', '--file_name', default="disp_impact_remover_1.0_sex.csv" , type=str, help='Path to the file to use as input.')
     parser.add_argument('-s', '--sensitive', type=str, default='sex', help='attribute considered sensitive for calculations')
     parser.add_argument('-enc', '--encode', type=str, default='true', help='Whether to encode features if not already encoded input', required=False)
     
@@ -126,10 +122,9 @@ if __name__ == "__main__":
     args = get_args()
 
     path_to_file = "../GeneralDatasets/sex_last/Adult_NotNA__sex.csv"
-    # path_to_file = "/home/jc/Desktop/udem_H20/thesis_research/GeneralDatasets/sex_last/disp_impact_remover_1.0_sex.csv"
-    path_to_file = args.file_path
+    path_to_file = f"./fairness_calculation_data/{args.file_name}"
     
-    x, y, c_ix, n_ix, sensitive_col, sens_idx = load_dataset(path_to_file, args.sensitive)
+    x, y, c_ix, n_ix, sensitive_col = load_dataset(path_to_file, args.sensitive)
     
     model = model_dict[args.model]
 
@@ -146,4 +141,4 @@ if __name__ == "__main__":
 
     y_pred = model.predict(x_test)
     
-    demo_parity_check(x_test, y_test, y_pred, sensitive_col, score, sens_idx)
+    demo_parity_check(x_test, y_test, y_pred, sensitive_col, score)
