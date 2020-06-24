@@ -72,7 +72,7 @@ def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
     print(f"Proportion of 1 given sex=female: {count_1_fem/i:.3f}")
     print(f"proportion of label 1: {count_1/i:.3f}")
 
-def disparate_impact(x_test, y_true, y_pred, sens_attr, accuracy_score):
+def disparate_impact_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
     '''
         Calculates disparate impact. 
 
@@ -98,6 +98,30 @@ def disparate_impact(x_test, y_true, y_pred, sens_attr, accuracy_score):
     a = count_1_men/(count_1_men+count_0_men)
     b = count_1_fem/(count_1_fem+count_0_fem)
     print(f"Disparate Impact value: {a/b:.3f}")
+
+def equal_opportunity_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
+    '''
+        Calculates disparate impact. 
+
+        Output should be greater than 0.8 to meet legal definition of disparate impact, but the closest to 1 the better
+    '''
+    count_1, count_1_men, count_1_fem= 0,0,0
+    incr = lambda x: x+1 
+
+    for i, row in enumerate(x_test):
+        if y_true[i] == 1: # If true decision Y is positive
+            count_1 = incr(count_1) 
+            if sens_attr[i] == 1: # And sensitive attribute A is 1
+                if y_pred[i] ==1:  # probability that our model also says positive (Y_hat)
+                    count_1_men = incr(count_1_men)
+                else:
+                    count_1_fem = incr(count_1_fem)
+    
+    prob_men = count_1_men / count_1
+    prob_fem = count_1_fem / count_1 
+    print(f"Probability model predicts correctly for men: {prob_men:.4f}")
+    print(f"Probability model predicts correctly for female: {prob_fem:.4f}")
+    print(f"Difference (lack of EO): {(prob_fem-prob_men)*100:.2f}%")
     
 
 def get_args():
@@ -137,8 +161,8 @@ if __name__ == "__main__":
     else:
         print('No Encoding. \n')
         score, x_test, y_test = run_classifiers(x, y, model)
-    print(f"Accuracy on decision: {(score*100):.3f}% \n")
+    print(f"Accuracy on decision with {type(model_dict[args.model])}: {(score*100):.3f}% \n")
 
     y_pred = model.predict(x_test)
     
-    demo_parity_check(x_test, y_test, y_pred, sensitive_col, score)
+    equal_opportunity_check(x_test, y_test, y_pred, sensitive_col, score)
