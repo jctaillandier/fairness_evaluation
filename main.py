@@ -43,92 +43,113 @@ def run_classifiers(X, y, model):
     score = accuracy_score(y_test,preds)
 
     return score, X_test, y_test
-
-# sex = 1 means male
-def demo_parity_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
+class Fairness_Calculation:
     '''
-        Calculates demographic parity on trained model.
+        Creates an object with all information required to then calculate any fairness metrics currently implemented
 
-        The proportion of 1 (where decision is positive) should be similar for both sex 
+        :PARAMS
+        x_test: Test set used from sanitized data, not used to train the Classifier
+        y_true: Corresponding label from Test set of sanitized data
+        y_pred: Labels predicted by our Classifier. Corresponding line by line with above params
+        sens_attr: Test set values of sensitive attribute of Sanitized data. Also corresponding line by line
+        accuracy_score: Classifier Test set accuracy.
+
     '''
-    count_1, count_1_men, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0
-    incr = lambda x: x+1 
+    def __init__(self, x_test, y_true, y_pred, sens_attr, accuracy_score):
+        self.x_test = x_test
+        self.y_true = y_true
+        self.y_pred = y_pred
+        self.sens_attr = sens_attr
+        self.accuracy_score = accuracy_score
 
-    for i, row in enumerate(x_test):
-        if sens_attr[i] == 0:
-            count_1 = incr(count_1)
-            if row[-1] == 0: #female
-                count_1_men = incr(count_1_men)
-            else:
-                count_1_fem = incr(count_1_fem)
-        else:
-            count_0 = incr(count_0) 
-            if row[-1] == 0: #female
-                count_0_men = incr(count_0_men)
-            else:
-                count_0_fem = incr(count_0_fem)
-    
-    print(f"Proportion of 1 given sex=male: {count_1_men/i:.3f}")
-    print(f"Proportion of 1 given sex=female: {count_1_fem/i:.3f}")
-    print(f"proportion of label 1: {count_1/i:.3f}")
+    # sex = 1 means male
+    def demo_parity_check(self):
+        '''
+            Calculates demographic parity on trained model.
 
-def disparate_impact_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
-    '''
-        Calculates disparate impact. 
+            The proportion of 1 (where decision is positive) should be similar for both sex 
+        '''
+        count_1, count_1_men, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0
+        incr = lambda x: x+1 
 
-        Output should be greater than 0.8 to meet legal definition of disparate impact, but the closest to 1 the better
-    '''
-    count_1, count_1_men, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0
-    incr = lambda x: x+1 
-
-    for i, row in enumerate(x_test):
-        if sens_attr[i] == 0:
-            count_1 = incr(count_1) # count of total positive decision
-            if row[-1] == 0: # female
-                count_1_men = incr(count_1_men)
-            else:
-                count_1_fem = incr(count_1_fem)
-        else:
-            count_0 = incr(count_0) # count of total negative decision
-            if row[-1] == 0: # female
-                count_0_men = incr(count_0_men)
-            else:
-                count_0_fem = incr(count_0_fem)
-    # prob oui if men / prob oui if female
-    a = count_1_men/(count_1_men+count_0_men)
-    b = count_1_fem/(count_1_fem+count_0_fem)
-    print(f"Disparate Impact value: {a/b:.3f}")
-
-def equal_opportunity_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
-    '''
-        Calculates disparate impact. 
-
-        Output should be greater than 0.8 to meet legal definition of disparate impact, but the closest to 1 the better
-    '''
-    count_wrong_men, count_wrong_fem,  count_1_men, count_1_fem= 0,0,0,0
-    incr = lambda x: x+1 
-
-    for i, row in enumerate(x_test):
-        if y_true[i] == 1: # If true decision Y is positive
-            if sens_attr[i] == 1: # And sensitive attribute A is 1 meaning its a 
-                if y_pred[i] ==1:  # probability that our model also says positive (Y_hat)
+        for i, row in enumerate(self.x_test):
+            if self.sens_attr[i] == 0:
+                count_1 = incr(count_1)
+                if row[-1] == 0: #female
                     count_1_men = incr(count_1_men)
-                else: # meaning our model is wrong
-                    count_wrong_men = incr(count_wrong_men)
-
-            else:
-                if y_pred[i] ==0:  # probability that our model also says 0 (Y_hat)
+                else:
                     count_1_fem = incr(count_1_fem)
-                else: # meaning our model is wrong
-                    count_wrong_fem = incr(count_wrong_fem)
+            else:
+                count_0 = incr(count_0) 
+                if row[-1] == 0: #female
+                    count_0_men = incr(count_0_men)
+                else:
+                    count_0_fem = incr(count_0_fem)
+        print(f"Demographic Parity results:")
+        print(f"Proportion of 1 given sex=male: {count_1_men/i:.3f}")
+        print(f"Proportion of 1 given sex=female: {count_1_fem/i:.3f}")
+        print(f"proportion of label 1: {count_1/i:.3f}")
 
-    
-    prob_men = count_1_men / (count_1_men+count_wrong_men)
-    prob_fem = count_1_fem / (count_1_fem+count_wrong_fem) 
-    print(f"Probability model predicts correctly for men: {prob_men:.4f}")
-    print(f"Probability model predicts correctly for female: {prob_fem:.4f}")
-    print(f"Difference (lack of EO): {(prob_fem-prob_men)*100:.2f}%")
-    
+    # def disparate_impact_check(self):
+        '''
+            Calculates disparate impact. 
+
+            Output should be greater than 0.8 to meet legal definition of disparate impact, but the closest to 1 the better
+        '''
+        count_1, count_1_men, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0
+        incr = lambda x: x+1 
+
+        for i, row in enumerate(self.x_test):
+            if self.sens_attr[i] == 0:
+                count_1 = incr(count_1) # count of total positive decision
+                if row[-1] == 0: # female
+                    count_1_men = incr(count_1_men)
+                else:
+                    count_1_fem = incr(count_1_fem)
+            else:
+                count_0 = incr(count_0) # count of total negative decision
+                if row[-1] == 0: # female
+                    count_0_men = incr(count_0_men)
+                else:
+                    count_0_fem = incr(count_0_fem)
+        # prob oui if men / prob oui if female
+        a = count_1_men/(count_1_men+count_0_men)
+        b = count_1_fem/(count_1_fem+count_0_fem)
+        if b == 0:
+            b = 0.00001
+        print(f"Disparate Impact value: {a/b:.3f}")
+
+    def equal_opportunity_check(self):
+        '''
+            Calculates Equal Opportunity
+
+            The difference between groups should be small.
+        '''
+        count_wrong_men, count_wrong_fem,  count_1_men, count_1_fem= 0,0,0,0
+        incr = lambda x: x+1 
+
+        for i, row in enumerate(self.x_test):
+            if self.y_true[i] == 1: # If true decision Y is positive
+                if self.sens_attr[i] == 1: # And sensitive attribute A is 1 meaning its a 
+                    if self.y_pred[i] ==1:  # probability that our model also says positive (Y_hat)
+                        count_1_men = incr(count_1_men)
+                    else: # meaning our model is wrong
+                        count_wrong_men = incr(count_wrong_men)
+
+                else:
+                    if self.y_pred[i] ==0:  # probability that our model also says 0 (Y_hat)
+                        count_1_fem = incr(count_1_fem)
+                    else: # meaning our model is wrong
+                        count_wrong_fem = incr(count_wrong_fem)
+
+        
+        prob_men = count_1_men / (count_1_men+count_wrong_men)
+        prob_fem = count_1_fem / (count_1_fem+count_wrong_fem)
+        print(f"Equal Opportunity results:") 
+        print(f"Probability model predicts correctly for men: {prob_men:.4f}")
+        print(f"Probability model predicts correctly for female: {prob_fem:.4f}")
+        print(f"Difference (lack of EO): {(prob_fem-prob_men)*100:.2f}%")
+        
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -136,6 +157,7 @@ def get_args():
     parser.add_argument('-fn', '--file_name', default="disp_impact_remover_1.0_sex.csv" , type=str, help='Path to the file to use as input.')
     parser.add_argument('-s', '--sensitive', type=str, default='sex', help='attribute considered sensitive for calculations')
     parser.add_argument('-enc', '--encode', type=str, default='false', help='Whether to encode features if not already encoded input', required=False)
+    parser.add_argument('-met', '--metric', type=str, default='disp_impact', help='Which fairness metric to calculate', required=False, choices=['disp_impact', 'equal_opp', 'demo_parity'])
     
     return parser.parse_args()
 
@@ -172,5 +194,11 @@ if __name__ == "__main__":
     print(f"Accuracy on decision with {type(model_dict[args.model])}: {(score*100):.3f}% \n")
 
     y_pred = model.predict(x_test)
-    
-    equal_opportunity_check(x_test, y_test, y_pred, sensitive_col, score)
+
+    fair_calculator = Fairness_Calculation(x_test, y_test, y_pred, sensitive_col, score)
+    if args.metric.lower() == 'equal_opp':
+        fair_calculator.equal_opportunity_check()
+    elif args.metric.lower() == 'disp_impact':
+        fair_calculator.disparate_impact_check()
+    elif args.metric.lower() == 'demo_parity':
+        fair_calculator.demo_parity_check()
