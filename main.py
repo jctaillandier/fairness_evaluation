@@ -105,20 +105,26 @@ def equal_opportunity_check(x_test, y_true, y_pred, sens_attr, accuracy_score):
 
         Output should be greater than 0.8 to meet legal definition of disparate impact, but the closest to 1 the better
     '''
-    count_1, count_1_men, count_1_fem= 0,0,0
+    count_wrong_men, count_wrong_fem,  count_1_men, count_1_fem= 0,0,0,0
     incr = lambda x: x+1 
 
     for i, row in enumerate(x_test):
         if y_true[i] == 1: # If true decision Y is positive
-            count_1 = incr(count_1) 
-            if sens_attr[i] == 1: # And sensitive attribute A is 1
+            if sens_attr[i] == 1: # And sensitive attribute A is 1 meaning its a 
                 if y_pred[i] ==1:  # probability that our model also says positive (Y_hat)
                     count_1_men = incr(count_1_men)
-                else:
+                else: # meaning our model is wrong
+                    count_wrong_men = incr(count_wrong_men)
+
+            else:
+                if y_pred[i] ==0:  # probability that our model also says 0 (Y_hat)
                     count_1_fem = incr(count_1_fem)
+                else: # meaning our model is wrong
+                    count_wrong_fem = incr(count_wrong_fem)
+
     
-    prob_men = count_1_men / count_1
-    prob_fem = count_1_fem / count_1 
+    prob_men = count_1_men / (count_1_men+count_wrong_men)
+    prob_fem = count_1_fem / (count_1_fem+count_wrong_fem) 
     print(f"Probability model predicts correctly for men: {prob_men:.4f}")
     print(f"Probability model predicts correctly for female: {prob_fem:.4f}")
     print(f"Difference (lack of EO): {(prob_fem-prob_men)*100:.2f}%")
@@ -129,7 +135,7 @@ def get_args():
     parser.add_argument('-m','--model', type=str, default='tree', help='Type of model', choices=['svm', 'tree', 'MLP','bagging', 'grad_boost', 'forest'], required=False)
     parser.add_argument('-fn', '--file_name', default="disp_impact_remover_1.0_sex.csv" , type=str, help='Path to the file to use as input.')
     parser.add_argument('-s', '--sensitive', type=str, default='sex', help='attribute considered sensitive for calculations')
-    parser.add_argument('-enc', '--encode', type=str, default='true', help='Whether to encode features if not already encoded input', required=False)
+    parser.add_argument('-enc', '--encode', type=str, default='false', help='Whether to encode features if not already encoded input', required=False)
     
     return parser.parse_args()
 
@@ -148,6 +154,8 @@ if __name__ == "__main__":
     path_to_file = "../GeneralDatasets/sex_last/Adult_NotNA__sex.csv"
     path_to_file = f"./fairness_calculation_data/{args.file_name}"
     
+    # filen = 'adult_sanitized_0.2_sex'
+    # path_to_file = f'../focus_data/gansanitized/{filen}.csv'
     x, y, c_ix, n_ix, sensitive_col = load_dataset(path_to_file, args.sensitive)
     
     model = model_dict[args.model]

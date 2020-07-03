@@ -1,0 +1,7 @@
+Y is decision (income)
+
+X is input data
+
+Z is latent representation made by generator
+
+A is sensitive attribute (sex)
