@@ -21,6 +21,14 @@ def load_dataset(full_path, s_attr):
 
     X, y = dataframe.drop(last_ix, axis=1), dataframe[last_ix]
     sensitive_attr =  dataframe[s_attr]
+    
+    # REMOVE Sens attr from classifier..
+    #  This is an assumption of sanitizers I think
+    # X.drop(s_attr, inplace=True, axis=1)
+
+    decision_idx = dataframe.columns.tolist().index(last_ix)
+    sens_idx = dataframe.columns.tolist().index(s_attr)
+    
     cat_ix = X.select_dtypes(include=['object', 'bool']).columns
     num_ix = X.select_dtypes(include=['int64', 'float64']).columns
     c_ix = []
@@ -30,7 +38,7 @@ def load_dataset(full_path, s_attr):
             c_ix.append(i)
         elif v in num_ix:
             n_ix.append(i)
-    return X.values, y.values, c_ix, n_ix, sensitive_attr
+    return X.values, y.values, c_ix, n_ix, sensitive_attr, sens_idx, decision_idx
 
 
 def run_classifiers(X, y, model):
@@ -40,9 +48,10 @@ def run_classifiers(X, y, model):
     
     model.fit(X_train, y_train)
     preds = model.predict(X_test)
-    score = accuracy_score(y_test,preds)
+    score = accuracy_score(y_test, preds)
 
     return score, X_test, y_test
+
 class Fairness_Calculation:
     '''
         Creates an object with all information required to then calculate any fairness metrics currently implemented
@@ -55,12 +64,14 @@ class Fairness_Calculation:
         accuracy_score: Classifier Test set accuracy.
 
     '''
-    def __init__(self, x_test, y_true, y_pred, sens_attr, accuracy_score):
+    def __init__(self, x_test, y_true, y_pred, sens_attr, sens_idx, dec_idx, accuracy_score):
         self.x_test = x_test
         self.y_true = y_true
         self.y_pred = y_pred
         self.sens_attr = sens_attr
         self.accuracy_score = accuracy_score
+        self.sens_attr_idx = sens_idx
+        self.dec_idx = dec_idx
 
     # sex = 1 means male
     def demo_parity_check(self):
@@ -75,13 +86,13 @@ class Fairness_Calculation:
         for i, row in enumerate(self.x_test):
             if self.sens_attr[i] == 0:
                 count_1 = incr(count_1)
-                if row[-1] == 0: #female
+                if row[self.sens_attr_idx] == 0: #female
                     count_1_men = incr(count_1_men)
                 else:
                     count_1_fem = incr(count_1_fem)
             else:
                 count_0 = incr(count_0) 
-                if row[-1] == 0: #female
+                if row[self.sens_attr_idx] == 0: #female
                     count_0_men = incr(count_0_men)
                 else:
                     count_0_fem = incr(count_0_fem)
@@ -90,34 +101,39 @@ class Fairness_Calculation:
         print(f"Proportion of 1 given sex=female: {count_1_fem/i:.3f}")
         print(f"proportion of label 1: {count_1/i:.3f}")
 
-    # def disparate_impact_check(self):
+    def disparate_impact_check(self):
         '''
             Calculates disparate impact. 
 
             Output should be greater than 0.8 to meet legal definition of disparate impact, but the closest to 1 the better
         '''
-        count_1, count_1_men, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0
+        prob_1_given_1, prob_1_given_0, prob_0_given_1, prob_0_given_0, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0,0,0
         incr = lambda x: x+1 
 
         for i, row in enumerate(self.x_test):
             if self.sens_attr[i] == 0:
-                count_1 = incr(count_1) # count of total positive decision
-                if row[-1] == 0: # female
-                    count_1_men = incr(count_1_men)
+                #what is the probability of y_pred=1
+                if self.y_pred[i] == 1: 
+                    prob_1_given_0 = incr(prob_1_given_0)
                 else:
-                    count_1_fem = incr(count_1_fem)
+                    prob_0_given_0 = incr(prob_0_given_0)
+            
             else:
-                count_0 = incr(count_0) # count of total negative decision
-                if row[-1] == 0: # female
-                    count_0_men = incr(count_0_men)
+                #what is the probability of y_pred=1
+                if self.y_pred[i] == 1: 
+                    prob_1_given_1 = incr(prob_1_given_1)
                 else:
-                    count_0_fem = incr(count_0_fem)
-        # prob oui if men / prob oui if female
-        a = count_1_men/(count_1_men+count_0_men)
-        b = count_1_fem/(count_1_fem+count_0_fem)
-        if b == 0:
-            b = 0.00001
-        print(f"Disparate Impact value: {a/b:.3f}")
+                    prob_0_given_1 = incr(prob_0_given_1)
+
+        numerator = prob_1_given_0/(prob_1_given_0 + prob_0_given_0)    
+        denominator = prob_1_given_1/(prob_1_given_1 + prob_0_given_1)
+
+        try:
+            res = numerator/denominator
+            print(f"Disparate Impact value: {res:.3f}")
+        except Exception as e:
+            print("> Issue calculating Disparate impact: Division by zero")  
+            print('>> ', e)
 
     def equal_opportunity_check(self):
         '''
@@ -154,7 +170,7 @@ class Fairness_Calculation:
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-m','--model', type=str, default='tree', help='Type of model', choices=['svm', 'tree', 'MLP','bagging', 'grad_boost', 'forest'], required=False)
-    parser.add_argument('-fn', '--file_name', default="disp_impact_remover_1.0_sex.csv" , type=str, help='Path to the file to use as input.')
+    parser.add_argument('-fn', '--file_name', default="Adult_NotNA_NoCat.csv" , type=str, help='Path to the file to use as input.')
     parser.add_argument('-s', '--sensitive', type=str, default='sex', help='attribute considered sensitive for calculations')
     parser.add_argument('-enc', '--encode', type=str, default='false', help='Whether to encode features if not already encoded input', required=False)
     parser.add_argument('-met', '--metric', type=str, default='disp_impact', help='Which fairness metric to calculate', required=False, choices=['disp_impact', 'equal_opp', 'demo_parity'])
@@ -178,8 +194,8 @@ if __name__ == "__main__":
     
     # filen = 'adult_sanitized_0.2_sex'
     # path_to_file = f'../focus_data/gansanitized/{filen}.csv'
-    x, y, c_ix, n_ix, sensitive_col = load_dataset(path_to_file, args.sensitive)
-    
+    x, y, c_ix, n_ix, sensitive_col, sens_idx, dec_idx = load_dataset(path_to_file, args.sensitive)
+
     model = model_dict[args.model]
 
     if args.encode=='true':
@@ -195,7 +211,7 @@ if __name__ == "__main__":
 
     y_pred = model.predict(x_test)
 
-    fair_calculator = Fairness_Calculation(x_test, y_test, y_pred, sensitive_col, score)
+    fair_calculator = Fairness_Calculation(x_test, y_test, y_pred, sensitive_col, sens_idx, dec_idx, score)
     if args.metric.lower() == 'equal_opp':
         fair_calculator.equal_opportunity_check()
     elif args.metric.lower() == 'disp_impact':
