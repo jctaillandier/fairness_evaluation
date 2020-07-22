@@ -5,7 +5,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler, LabelEncoder
 import matplotlib.pyplot as plt
-# from fairlearn.reductions import ExponentiatedGradient, DemographicParity
+from fairlearn.reductions import ExponentiatedGradient, DemographicParity
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold, cross_val_score
 from sklearn.tree import DecisionTreeClassifier
@@ -27,7 +27,7 @@ def load_dataset(full_path, s_attr):
     #  This is an assumption of sanitizers I think
     # X.drop(s_attr, inplace=True, axis=1)
 
-    # decision_idx = dataframe.columns.tolist().index(last_ix)
+    decision_idx = dataframe.columns.tolist().index(last_ix)
     sens_idx = dataframe.columns.tolist().index(s_attr) -1
    
     cat_ix = X.select_dtypes(include=['object', 'bool']).columns
@@ -39,7 +39,7 @@ def load_dataset(full_path, s_attr):
             c_ix.append(i)
         elif v in num_ix:
             n_ix.append(i)
-    return X.values, y.values, c_ix, n_ix, sensitive_attr, sens_idx-1
+    return X.values, y.values, c_ix, n_ix, sensitive_attr, sens_idx-1, decision_idx
 
 
 def run_classifiers(X, y, model, sens_idx):
@@ -66,13 +66,14 @@ class Fairness_Calculation:
         accuracy_score: Classifier Test set accuracy.
 
     '''
-    def __init__(self, x_test, y_true, y_pred, sens_attr, sens_idx, accuracy_score):
+    def __init__(self, x_test, y_true, y_pred, sens_attr, sens_idx, dec_idx, accuracy_score):
         self.x_test = x_test
         self.y_true = y_true
         self.y_pred = y_pred
-        self.sens_attr = x_test[:,-1]
+        self.sens_attr = sens_attr
         self.accuracy_score = accuracy_score
         self.sens_attr_idx = sens_idx
+        self.dec_idx = dec_idx
         # print(x_test[0:10,sens_idx])
     # sex = 1 means male
     def demo_parity_check(self):
@@ -81,10 +82,26 @@ class Fairness_Calculation:
 
             The proportion of 1 (where decision y_hat is positive) should be similar for both sex 
         '''
-        a = cb.metrics.demographic_parity(self.y_true, self.y_pred, self.sens_attr, aggregate=None, sample_weight=None)
-        print(f"Rate of positive decision on group A: {a[0]}")
-        print(f"Rate of positive decision on group B: {a[1]}")
-        print(F"Difference: {(a[0]-a[1])*100:.3f}%")
+        count_1, count_1_men, count_1_fem, count_0_men, count_0_fem, count_0 = 0,0,0,0,0,0
+        incr = lambda x: x+1 
+
+        for i, row in enumerate(self.x_test):
+            if self.sens_attr[i] == 0:
+                count_1 = incr(count_1)
+                if row[self.sens_attr_idx] == 0: #female
+                    count_1_men = incr(count_1_men)
+                else:
+                    count_1_fem = incr(count_1_fem)
+            else:
+                count_0 = incr(count_0) 
+                if row[self.sens_attr_idx] == 0: #female
+                    count_0_men = incr(count_0_men)
+                else:
+                    count_0_fem = incr(count_0_fem)
+        print(f"Demographic Parity results:")
+        print(f"Proportion of 1 given sex=male: {count_1_men/i:.3f}")
+        print(f"Proportion of 1 given sex=female: {count_1_fem/i:.3f}")
+        print(f"Difference: {((count_1_fem/i)-(count_1_men/i)):.3f}")
 
     def disparate_impact_check(self):
         '''
@@ -179,7 +196,7 @@ if __name__ == "__main__":
     
     # filen = 'adult_sanitized_0.2_sex'
     # path_to_file = f'../focus_data/gansanitized/{filen}.csv'
-    x, y, c_ix, n_ix, sensitive_col, sens_idx = load_dataset(path_to_file, args.sensitive)
+    x, y, c_ix, n_ix, sensitive_col, sens_idx, dec_idx = load_dataset(path_to_file, args.sensitive)
 
     model = model_dict[args.model]
 
@@ -196,7 +213,7 @@ if __name__ == "__main__":
 
     y_pred = model.predict(x_test)
 
-    fair_calculator = Fairness_Calculation(x_test, y_test, y_pred, sensitive_col, sens_idx, score)
+    fair_calculator = Fairness_Calculation(x_test, y_test, y_pred, sensitive_col, sens_idx, dec_idx, score)
     if args.metric.lower() == 'equal_opp':
         fair_calculator.equal_opportunity_check()
     elif args.metric.lower() == 'disp_impact':
